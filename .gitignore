@@ -1,4 +1,6 @@
 *.png
 bin/
 .settings/
+.classpath
 webcam-capture-0.3.12-dist/
+webcam-capture-0.3.12-dist.zip

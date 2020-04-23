@@ -13,44 +13,35 @@ import javax.swing.*;
 import javax.swing.Timer;
 
 import com.github.sarxos.webcam.*;
+import com.github.sarxos.webcam.ds.dummy.*;
 
 public class Driver {
 	
 	public static final String TIME_LAPSE_SAVES = "D:/TimeLapses/";
-	
-	private class DimensionOption {
-		private final Dimension dimension;
-		public DimensionOption(Dimension dimension) {
-			this.dimension = dimension;
-		}
-		public Dimension get() {
-			return dimension;
-		}
-		@Override
-		public String toString() {
-			return "(" + dimension.width + ", " + dimension.height + ")";
-		}
-	}
+	public static final DimensionOption[] viewSizeOptions = new DimensionOption[] {
+			new DimensionOption(WebcamResolution.HD.getSize()),
+			new DimensionOption(WebcamResolution.FHD.getSize()),
+			new DimensionOption(WebcamResolution.UHD4K.getSize())
+	};
 	
 	JFrame frame;
 	JComboBox<Webcam> webcamSelect;
 	JComboBox<DimensionOption> viewSizeSelect;
 	JTextField delaySelect;
-	
-	Webcam[] webcams;
-	DimensionOption[] viewSizes;
+	JToggleButton startButton;
 	
 	Webcam selectedWebcam;
-	Dimension selectedViewSize;
 	
 	volatile BufferedImage currentImage;
 	String newFolderName;
 	volatile int imageCounter;
 	Thread thread;
+	volatile int delay;
+	volatile boolean stopThread;
 	
 	public void updateWebcamList() {
 		List<Webcam> tempwebcams = Webcam.getWebcams();
-		webcams = new Webcam[tempwebcams.size()];
+		Webcam[] webcams = new Webcam[tempwebcams.size()];
 		int index = 0;
 		for(Webcam w : tempwebcams) {
 			webcams[index++] = w;
@@ -59,7 +50,6 @@ public class Driver {
 			DefaultComboBoxModel<Webcam> model = new DefaultComboBoxModel<>(webcams);
 			webcamSelect.setModel(model);
 		}
-		selectWebcam(0);
 	}
 	public void updateViewSizeList() {
 		Dimension[] sizes = new Dimension[] { 
@@ -69,7 +59,7 @@ public class Driver {
 				};
 		selectedWebcam.setCustomViewSizes(sizes);
 		Dimension[] temp = selectedWebcam.getCustomViewSizes();
-		viewSizes = new DimensionOption[temp.length];
+		DimensionOption[] viewSizes = new DimensionOption[temp.length];
 		for(int i = 0; i < temp.length; i++) {
 			viewSizes[i] = new DimensionOption(temp[i]);
 		}
@@ -77,26 +67,41 @@ public class Driver {
 			DefaultComboBoxModel<DimensionOption> model = new DefaultComboBoxModel<>(viewSizes);
 			viewSizeSelect.setModel(model);
 		}
-		selectViewSize(0);
 	}
-	public void selectWebcam(int index) {
-		if(webcamSelect != null) {
-			webcamSelect.setSelectedIndex(index);
-		}
-		selectedWebcam = webcams[index];
-		System.out.println("Selected " + selectedWebcam);
-		updateViewSizeList();
-	}
-	public void selectViewSize(int index) {
-		if(viewSizeSelect != null) {
-			viewSizeSelect.setSelectedIndex(index);
-		}
-		selectedViewSize = viewSizes[index].get();
-		System.out.println("Selected " + selectedViewSize);
-		selectedWebcam.setViewSize(selectedViewSize);
-	}
+//	public void selectWebcam(int index) {
+//		stopThread();
+//		if(webcamSelect != null) {
+//			webcamSelect.setSelectedIndex(index);
+//		}
+//		if(selectedWebcam != null) {
+//			selectedWebcam.close();
+//		}
+//		selectedWebcam = webcams[index];
+//		selectedWebcam.getLock().unlock();
+//		selectedWebcam.open();
+//		System.out.println("Selected " + selectedWebcam);
+//		updateViewSizeList();
+//		startThread();
+//	}
+//	public void selectViewSize(int index) {
+//		stopThread();
+//		if(viewSizeSelect != null) {
+//			viewSizeSelect.setSelectedIndex(index);
+//		}
+//		selectedViewSize = viewSizes[index].get();
+//		System.out.println("Selected " + selectedViewSize);
+//		
+//		selectedWebcam.close();
+//		selectedWebcam.setViewSize(selectedViewSize);
+//		selectedWebcam.getLock().unlock();
+//		selectedWebcam.open();
+//		startThread();
+//	}
 
 	public Driver() {
+		if(Webcam.getWebcams().size() == 0) {
+			Webcam.setDriver(new WebcamDummyDriver(20));
+		}
 		
 //		String webcamString = "Available Webcams: ";
 //		for (Webcam c : webcams) {
@@ -125,7 +130,7 @@ public class Driver {
 
 		frame = new JFrame("Time Lapse");
 		frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-		frame.setSize(500, 347);
+		frame.setSize(700, 500);
 		frame.addWindowListener(new WindowListener() {
 			
 			@Override
@@ -176,19 +181,24 @@ public class Driver {
 		
 		webcamSelect = new JComboBox<Webcam>();
 		webcamSelect.addActionListener(e -> {
-			selectWebcam(webcamSelect.getSelectedIndex());
+			stopThread();
+			startThread();
+			//selectWebcam(webcamSelect.getSelectedIndex());
 		});
-		viewSizeSelect = new JComboBox<>();
+		viewSizeSelect = new JComboBox<>(viewSizeOptions);
 		viewSizeSelect.addActionListener(e -> {
-			selectViewSize(viewSizeSelect.getSelectedIndex());
+			stopThread();
+			startThread();
+			//selectViewSize(viewSizeSelect.getSelectedIndex());
 		});
 		delaySelect = new JTextField("1000", 10);
-		JToggleButton startButton = new JToggleButton("Start");
+		startButton = new JToggleButton("Start");
 		startButton.addActionListener(e -> {
 			if(startButton.isSelected()) {
+				setupFolder();
+				imageCounter = 0;
 				try {
-					int delay = Integer.parseInt(delaySelect.getText());
-					startTimeLapse(delay);
+					delay = Integer.parseInt(delaySelect.getText());
 				}
 				catch(NumberFormatException ee) {
 					System.out.println("Invalid delay.");
@@ -223,55 +233,78 @@ public class Driver {
 		
 		frame.add(buttonPanel, BorderLayout.NORTH);
 		frame.add(imagePanel, BorderLayout.CENTER);
-		updateWebcamList();
-		frame.setVisible(true);
 
+		updateWebcamList();
+		delay = 1000;
+		startThread();
+		frame.setVisible(true);
+	}
+	
+	public Webcam getSelectedWebcam() {
+		Webcam sel = (Webcam) webcamSelect.getSelectedItem();
+		Dimension viewSize = ((DimensionOption)viewSizeSelect.getSelectedItem()).get();
+		sel.setCustomViewSizes(new Dimension[] {viewSize});
+		sel.setViewSize(viewSize);
+		return sel;
+	}
+	
+	public void startThread() {
+		thread = new Thread(() -> {
+			System.err.println("Thread Started");
+			try {
+				selectedWebcam = getSelectedWebcam();
+				System.err.println("Opening " + selectedWebcam);
+				selectedWebcam.open();
+				long startTime = System.currentTimeMillis();
+				while(!stopThread) {
+					currentImage = selectedWebcam.getImage();
+					frame.repaint();
+					if(System.currentTimeMillis() - startTime > delay) {
+						startTime += delay;
+						if(startButton.isSelected()) {
+							String filename = String.format("image%05d.jpg", imageCounter++);
+							try {
+								ImageIO.write(currentImage, "jpg", new File(newFolderName + filename));
+							} catch (IOException ee) {
+								ee.printStackTrace();
+							}
+						}
+					}
+
+					Thread.sleep(30);
+				}
+			}
+			catch(InterruptedException e) {
+				e.printStackTrace();
+			}
+			finally {
+				System.err.println("Closing " + selectedWebcam);
+				selectedWebcam.close();
+			}
+			System.err.println("Thread Stopping");
+			stopThread = false;
+		});
+		stopThread = false;
+		thread.start();
+	}
+	public void stopThread() {
+		stopThread = true;
+		try {
+			System.err.println("Joining Thread");
+			thread.join();
+			System.err.println("Joined Thread");
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
 	}
 
 	public void stopTimeLapse() {
-		if(thread != null) {
-			thread.interrupt();
-		}
+		delay = 30;
 	}
 	public void startTimeLapse(int delay) {
 		setupFolder();
 		imageCounter = 0;
-		thread = new Thread(() -> {
-			System.out.println("started");
-			selectedWebcam.open();
-			System.out.println(selectedWebcam);
-			System.out.println(selectedWebcam.getViewSize());
-			System.out.println(selectedWebcam.isImageNew());
-			System.out.println(selectedWebcam.getImage());
-			System.out.println(selectedWebcam.getFPS());
-			System.out.println(selectedWebcam.getDevice());
-			
-			try {
-				while(!Thread.interrupted()) {
-					currentImage = selectedWebcam.getImage();
-					String filename = String.format("image%04d.jpg", imageCounter);
-					try {
-						ImageIO.write(currentImage, "jpg", new File(newFolderName + filename));
-					} catch (IOException ee) {
-						ee.printStackTrace();
-					}
-					imageCounter++;
-					frame.repaint();
-					if(Thread.interrupted()) {
-						break;
-					}
-					Thread.sleep(delay);
-				}
-			}
-			catch(Exception e) {
-				e.printStackTrace();
-				System.out.println("stopped");
-			}
-			finally {
-				selectedWebcam.close();
-			}
-		});
-		thread.start();
+		this.delay = delay; 
 	}
 	public void setupFolder() {
 		long name = System.currentTimeMillis() / 1000 - 1587594000L;
