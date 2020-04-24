@@ -39,6 +39,8 @@ public class Driver {
 	volatile int delay;
 	volatile boolean stopThread;
 	
+	volatile boolean getShot;
+	
 	public void updateWebcamList() {
 		List<Webcam> tempwebcams = Webcam.getWebcams();
 		Webcam[] webcams = new Webcam[tempwebcams.size()];
@@ -192,6 +194,10 @@ public class Driver {
 			//selectViewSize(viewSizeSelect.getSelectedIndex());
 		});
 		delaySelect = new JTextField("1000", 10);
+		JButton takeShot = new JButton("Shot");
+		takeShot.addActionListener(e -> {
+			getShot = true;
+		});
 		startButton = new JToggleButton("Start");
 		startButton.addActionListener(e -> {
 			if(startButton.isSelected()) {
@@ -222,6 +228,7 @@ public class Driver {
 		buttonPanel.add(viewSizeSelect);
 		buttonPanel.add(delaySelect);
 		buttonPanel.add(startButton);
+		buttonPanel.add(takeShot);
 
 		JPanel imagePanel = new JPanel() {
 			@Override
@@ -261,7 +268,8 @@ public class Driver {
 					frame.repaint();
 					if(System.currentTimeMillis() - startTime > delay) {
 						startTime += delay;
-						if(startButton.isSelected()) {
+						if(startButton.isSelected() || getShot) {
+							getShot = false;
 							String filename = String.format("image%05d.jpg", imageCounter++);
 							try {
 								ImageIO.write(currentImage, "jpg", new File(newFolderName + filename));
@@ -271,7 +279,7 @@ public class Driver {
 						}
 					}
 
-					Thread.sleep(30);
+					Thread.sleep(100);
 				}
 			}
 			catch(InterruptedException e) {
@@ -299,7 +307,7 @@ public class Driver {
 	}
 
 	public void stopTimeLapse() {
-		delay = 30;
+		delay = 100;
 	}
 	public void startTimeLapse(int delay) {
 		setupFolder();
